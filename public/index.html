@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Table Tennis Game</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
       margin: 0;
@@ -78,6 +79,14 @@
       <option value="hard">Hard</option>
     </select>
     &nbsp;&nbsp;
+    <label><strong>Ball Speed:</strong></label>
+    <select id="speedSelect">
+      <option value="auto" selected>Auto</option>
+      <option value="slow">Slow</option>
+      <option value="medium">Medium</option>
+      <option value="fast">Fast</option>
+    </select>
+    &nbsp;&nbsp;
     <label><strong>Points to win:</strong></label>
     <input type="number" id="winningScore" min="1" value="5" style="width:60px">
   </div>
@@ -86,26 +95,37 @@
   <div class="winner" id="winnerMsg"></div>
   <div class="scores" id="scoresDisplay">0 : 0</div>
   <script>
+    // --- SOUND SETUP ---
+    let AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+    function playBeep() {
+      if (!audioCtx) audioCtx = new AudioContext();
+      let o = audioCtx.createOscillator();
+      let g = audioCtx.createGain();
+      o.type = "square";
+      o.frequency.value = 520 + Math.random()*180;
+      g.gain.value = 0.03;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start();
+      setTimeout(() => { o.stop(); }, 42);
+    }
+
     // Responsive canvas, 90% of window size and preserves aspect
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
-    // Standard table tennis proportions (international)
-    const aspect = 40/22;  // Length:Width ratio
+    // International table tennis table ratio
+    const aspect = 40/22;
 
     function resizeCanvas() {
       let windowW = window.innerWidth;
-      let windowH = window.innerHeight - 220; // leave room for controls and scores
-
+      let windowH = window.innerHeight - 220;
       let scaleW = windowW * 0.90;
       let scaleH = windowH * 0.90;
 
-      // determine the largest size at 90% of window that maintains aspect
       if (scaleW / aspect > scaleH) {
-        // height is the limiting factor
         canvas.height = Math.floor(scaleH);
         canvas.width = Math.floor(scaleH * aspect);
       } else {
-        // width is the limiting factor
         canvas.width = Math.floor(scaleW);
         canvas.height = Math.floor(scaleW / aspect);
       }
@@ -116,7 +136,7 @@
       draw();
     }
 
-    // Game elements (positions/rules are relative to canvas size)
+    // Game elements
     let fieldWidth = 800, fieldHeight = 440;
     let paddleWidth = 0, paddleHeight = 0, ballRadius = 0;
     let playerY = 0, compY = 0;
@@ -128,9 +148,30 @@
     let compPaddleSpeed = 0;
     let compTrackRate = 0;
 
-    // For resizing support
+    // Ball speed profiles
+    const ballSpeeds = {
+      slow:   {vx: 0.007, vy: 0.007},
+      medium: {vx: 0.011, vy: 0.012},
+      fast:   {vx: 0.017, vy: 0.020}
+    };
+
+    function getDefaultBallSpeedByDifficulty() {
+      const level = levelSel.value;
+      if(level === 'easy') return 'slow';
+      if(level === 'medium') return 'medium';
+      return 'fast';
+    }
+
+    // For resizing
     let prevFieldWidth = fieldWidth;
     let prevFieldHeight = fieldHeight;
+
+    // Ball speed selection
+    function getBallSpeedSelected() {
+      const sel = speedSelect.value;
+      if (sel === 'auto') return getDefaultBallSpeedByDifficulty();
+      return sel;
+    }
 
     function scaleElements() {
       paddleWidth = Math.max(12, fieldWidth*0.014);
@@ -154,10 +195,11 @@
     }
 
     function resetBall(direction = 1) {
+      let speedProfile = ballSpeeds[getBallSpeedSelected()];
       ballX = fieldWidth/2;
       ballY = fieldHeight/2;
-      ballSpeedX = (direction)*fieldWidth*0.011;
-      ballSpeedY = (Math.random()*2-1)*fieldHeight*0.012;
+      ballSpeedX = (direction)*fieldWidth*speedProfile.vx;
+      ballSpeedY = (Math.random()*2-1)*fieldHeight*speedProfile.vy;
     }
 
     function resetGame() {
@@ -171,11 +213,12 @@
       updateScores();
     }
 
-    // Difficulty controls
+    // Controls
     const levelSel = document.getElementById('level');
     const winningScoreInput = document.getElementById('winningScore');
     const scoresDisplay = document.getElementById('scoresDisplay');
     const winnerMsg = document.getElementById('winnerMsg');
+    const speedSelect = document.getElementById('speedSelect');
 
     function updateDifficulty() {
       const level = levelSel.value;
@@ -189,8 +232,20 @@
         compPaddleSpeed = paddleSpeed * 1.5;
         compTrackRate = 0.18;
       }
+      if (speedSelect.value === "auto") {
+        resetBall(ballSpeedX > 0 ? 1 : -1);
+      }
     }
-    levelSel.addEventListener('change', updateDifficulty);
+    levelSel.addEventListener('change', function() {
+      updateDifficulty();
+      if (speedSelect.value === "auto") {
+        resetBall(ballSpeedX > 0 ? 1 : -1);
+      }
+    });
+
+    speedSelect.addEventListener('change', function() {
+      resetBall(ballSpeedX > 0 ? 1 : -1);
+    });
 
     winningScoreInput.addEventListener('input', () => {
       let val = parseInt(winningScoreInput.value, 10);
@@ -202,7 +257,6 @@
     // Movement/input
     let upPressed = false, downPressed = false;
     document.addEventListener('keydown', function(e){
-      // Prevent page scrolling for up and down arrows only
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
       }
@@ -223,7 +277,6 @@
     function movePlayerPaddle() {
       if (upPressed) playerY -= paddleSpeed;
       if (downPressed) playerY += paddleSpeed;
-      // Stay within screen
       if (playerY < 0) playerY = 0;
       if (playerY > fieldHeight-paddleHeight) playerY = fieldHeight-paddleHeight;
     }
@@ -249,6 +302,7 @@
         ballSpeedX = Math.abs(ballSpeedX);
         let collidePoint = ballY-(playerY+paddleHeight/2);
         ballSpeedY = collidePoint*0.19;
+        playBeep();
       }
 
       // Computer paddle collision
@@ -259,6 +313,7 @@
         ballSpeedX = -Math.abs(ballSpeedX);
         let collidePoint = ballY-(compY+paddleHeight/2);
         ballSpeedY = collidePoint*0.19;
+        playBeep();
       }
 
       // Score
@@ -278,7 +333,7 @@
         resetBall(-1);
       }
 
-      // Computer paddle AI
+      // Computer AI
       let center = compY + paddleHeight/2;
       if (center < ballY - 10) {
         compY += compPaddleSpeed;
@@ -306,19 +361,24 @@
       ctx.setLineDash([]);
       ctx.restore();
 
-      // Paddles (beige)
+      // Draw paddles WITH SHADOW
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.65)";
+      ctx.shadowBlur = fieldHeight*0.025;
       ctx.fillStyle = '#f5deb3';
       ctx.fillRect(14, playerY, paddleWidth, paddleHeight);
       ctx.fillRect(fieldWidth-20-paddleWidth, compY, paddleWidth, paddleHeight);
+      ctx.restore();
 
-      // Ball (white)
+      // Draw ball WITH SHADOW
+      ctx.save();
       ctx.beginPath();
       ctx.arc(ballX, ballY, ballRadius, 0, Math.PI*2);
       ctx.fillStyle = '#fff';
-      ctx.shadowColor = "#999";
-      ctx.shadowBlur = 7;
+      ctx.shadowColor = "#444";
+      ctx.shadowBlur = ballRadius * 2.3;
       ctx.fill();
-      ctx.shadowBlur = 0;
+      ctx.restore();
     }
 
     function updateScores() {
@@ -333,10 +393,8 @@
       requestAnimationFrame(gameLoop);
     }
 
-    // Responsive handler
     window.addEventListener('resize', resizeCanvas);
 
-    // --- INITIAL SETUP ---
     function firstSetup() {
       prevFieldWidth = fieldWidth;
       prevFieldHeight = fieldHeight;
